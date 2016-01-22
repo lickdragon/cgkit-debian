@@ -10,6 +10,7 @@ Homepage: http://cgkit.sourceforge.net/
 Package: cgkit
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}, python-protocols, python-pygame, python-pyode
+Suggests: python-serial
 Description: Python Computer Graphics Kit
  The Python Computer Graphics Kit is an Open Source software package containing
  a collection of Python modules, plugins and utilities that are meant to be 
