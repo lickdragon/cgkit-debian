@@ -41,6 +41,7 @@ import re
 import glob as _glob
 import copy
 import shutil
+import fnmatch
 
 class SeqString:
     """Sequence string class.
@@ -60,15 +61,40 @@ class SeqString:
     False
     >>> a>b
     True
+
+    By default, all numbers are treated as unsigned numbers. The constructor
+    argument *signedNums* can be used to change this behavior. The value
+    can either be a boolean to turn all numbers into signed numbers which means
+    any preceding minus sign will be considered to be part of the number or
+    you may pass a list of indices to only turn certain numbers into signed
+    numbers. The indices may also be negative if you want to count from the
+    end. For example, setting *signedNums* to ``[-1]`` will only turn the
+    last number (which often is the frame number when dealing with file names)
+    into a signed number and leave all other numbers unsigned.
+    
+    >>> s=SeqString("sequence-2.-012.tif")
+    >>> s.getNums()
+    [2, 12]
+    >>> s=SeqString("sequence-2.-012.tif", signedNums=True)
+    >>> s.getNums()
+    [-2, -12]
+    >>> s=SeqString("sequence-2.-012.tif", signedNums=[-1])
+    >>> s.getNums()
+    [2, -12]
     """
     
-    def __init__(self, s=None):
+    def __init__(self, s=None, signedNums=None):
         """Constructor.
 
         The sequence string is initialized with s which can be a regular 
         string, another SeqString or anything else that can be turned into
         a string using str(s). s can also be None which is equivalent
         to an empty string.
+        signedNum is either a boolean that can be used to turn all numbers
+        into signed numbers or it may be a list containing the indices of
+        the numbers that should be treated as signed numbers. An index may
+        also be negative to count from the end. By default, all numbers
+        are unsigned.
         """
         # This is an alternating sequence of text and number values
         # (always beginning and ending with a text (which might both be empty)).
@@ -79,7 +105,20 @@ class SeqString:
         # Example: 'anim1_0001.png' -> ['anim', (1,1), '_', (1,4), '.png']
         self._value = [""]
         self._initSeqString(s)
-
+        
+        if signedNums is not None:
+            if type(signedNums) is bool:
+                if signedNums:
+                    for i in range(self.numCount()):
+                        self._toSignedNum(i)
+            elif type(signedNums) is list:
+                for idx in signedNums:
+                    if type(idx) is not int:
+                        raise TypeError("The items inside the 'signedNums' list must be integers.")
+                    self._toSignedNum(idx)
+            else:
+                raise TypeError("Argument 'signedNums' must be a boolean or a list of integers.")
+    
     def __repr__(self):
         return "'%s'"%self.__str__()
 
@@ -89,9 +128,15 @@ class SeqString:
         The number of digits is maintained. The result is the original
         string.
         """
+        return self._valueToStr(self._value)
+
+    def _valueToStr(self, valueList):
+        """Convert a value list into a string again.
         
+        valueList is a list that has the same form as self._value.
+        """
         res=""
-        for i, vn in enumerate(self._value):
+        for i, vn in enumerate(valueList):
             if i%2==0:
                 res += vn
             else:
@@ -100,33 +145,56 @@ class SeqString:
                 res += a%val
         return res
 
-    def __cmp__(self, other):
+    def __eq__(self, other):
+        return self._cmp(other)==0
+    
+    def __ne__(self, other):
+        return self._cmp(other)!=0
+    
+    def __lt__(self, other):
+        return self._cmp(other)<0
+    
+    def __le__(self, other):
+        return self._cmp(other)<=0
+
+    def __gt__(self, other):
+        return self._cmp(other)>0
+    
+    def __ge__(self, other):
+        return self._cmp(other)>=0
+
+    def _cmp(self, other):
         """Comparison operator.
 
         The text parts are treated as strings, the number parts as numbers
         (e.g. 'a08' is greater than 'a2').
+        If other is a regular string, then only a regular string comparison
+        is done.
         """
         if other is None:
             return 1
         if not isinstance(other, SeqString):
             if not isinstance(other, basestring):
                 return 1
-        
-        # Convert both strings into pristine SeqStrings (because some numbers
-        # on the input strings may have been replaced by strings which would
-        # mess with the comparison).
-        selfStr = SeqString(self)
-        other = SeqString(other)
-        
+            # If other is a regular string, then turn self into a string as well
+            # and use normal string comparison
+            s = str(self)
+            if s<other:
+                return -1
+            elif s>other:
+                return 1
+            else:
+                return 0
+
         # Check the 'structure' of the strings first.
         # The numeric comparison is only done when the strings have the same
         # text/num patterns.
-        res = selfStr.match_cmp(other)
+        res = self.match_cmp(other)
         if res!=0:
             return res
 
         # Compare the individual components of the values side by side
-        for i, (a,b) in enumerate(zip(selfStr._value, other._value)):
+        for i, (a,b) in enumerate(zip(self._value, other._value)):
             if i%2==1:
                 # Get the numbers
                 a = a[0]
@@ -139,7 +207,14 @@ class SeqString:
 
         # If we are here everything has been equal so far, but maybe
         # one string has one component more in _value
-        return cmp(len(selfStr._value), len(other._value))
+        s1 = len(self._value)
+        s2 = len(other._value)
+        if s1<s2:
+            return -1
+        elif s1>s2:
+            return 1
+        else:
+            return 0
         
     def _initSeqString(self, s):
         """Initialize the sequence string with a string.
@@ -186,14 +261,36 @@ class SeqString:
                     z = 0
 
         # Add last value
-        if (z==0):
-             res.append(textbuf)
+        if z==0:
+            res.append(textbuf)
         else:
-             numtup = (int(textbuf),numtup[1])
-             res.append(numtup)
-             res.append("")
+            numtup = (int(textbuf),numtup[1])
+            res.append(numtup)
+            res.append("")
 
         self._value = res
+
+    def _toSignedNum(self, idx):
+        """Turn a number into a signed number.
+        
+        If the number is preceded by a '-' character, that character is removed
+        from the string part and the number is negated.
+        idx is the index of the number. The index may also be negative.
+        An IndexError exception is thrown if the index is out of range. 
+        """
+        if idx<0:
+            idx = self.numCount()+idx
+        if idx<0 or idx>=self.numCount():
+            raise IndexError("index out of range")
+        
+        idx *= 2
+        strVal = self._value[idx]
+        if strVal.endswith("-"):
+            # Negate the value following the string
+            numTup = self._value[idx+1]
+            self._value[idx+1] = (-numTup[0], numTup[1]+1)
+            # Remove the '-' from the string
+            self._value[idx] = strVal[:-1]
 
     def match(self, template, numPos=None):
         """Check if one sequence string is equal to another except for one or all numbers.
@@ -204,7 +301,7 @@ class SeqString:
         
         *numPos* is the index of the number that is allowed to vary. For example,
         if *numPos* is -1, only the last number in a string may be different for two
-        strings to be in the same sequence. Al other numbers must match exactly
+        strings to be in the same sequence. All other numbers must match exactly
         (including the padding). If *numPos* is ``None``, all numbers may vary.
         """
         if not isinstance(template, SeqString):
@@ -241,7 +338,81 @@ class SeqString:
         """
         a = self.groupRepr()
         b = template.groupRepr()
-        return cmp(a,b)
+        if a<b:
+            return -1
+        elif a>b:
+            return 1
+        else:
+            return 0
+
+    def fnmatch(self, pattern):
+        """Match the string against a file name pattern.
+        
+        Similar to the function in the :mod:`fnmatch` module, this function
+        can be used to match the string against a pattern that may contain
+        wildcards (``"*"``, ``"?"``). Additionally, the pattern may contain
+        placeholders for numbers which is either a ``"#"`` for a 4-padded
+        number or a sequence of ``"@"`` characters for a custom padded number.
+        Note that matching against a number pattern of a certain width will
+        also match numbers whose width is larger unless they have been padded
+        with zeros.
+        Returns ``True`` if the string matches the input pattern.
+        """
+        patternList = []
+        s = pattern
+        while 1:
+            m = re.search(r"#|@+", s)
+            if m is None:
+                patternList.append(s)
+                break
+            patternList.append(s[:m.start()])
+            p = m.group()
+            if p=="#":
+                patternList.append(4)
+            else:
+                patternList.append(len(p))
+            s = s[m.end():]
+    
+        return self._fnmatch(self._value, patternList)
+    
+    def _fnmatch(self, valueList, patternList):
+        """Helper function for fnmatch.
+        
+        valueList is a list of the same form as self._value.
+        patternList is a list of the form [string, int, string, int, ...]
+        where string is a fnmatch pattern and the integer is the number of
+        digits that a number at this position must have (larger numbers are
+        allowed as well as there could have been an overflow when the original
+        string was created).
+        
+        patternList must have an odd number of items (which also means it must
+        not be empty).
+        """
+        prefixPattern = patternList[0]
+
+        # Is there only one item in patternList? Then there is no number anymore
+        # and we just have to do a normal fnmatch call...        
+        if len(patternList)==1:
+            s = self._valueToStr(valueList)
+            return fnmatch.fnmatch(s, prefixPattern) 
+        
+        numDigits = patternList[1]
+        
+        # Iterate over all numbers in the valueList and check if it fulfills
+        # the numDigits constraint. If it does, check whether the preceding
+        # string matches the string prefix pattern. If all that matches, we
+        # can call _fnmatch recursively with the remaining parts.
+        for i in range(1,len(valueList), 2):
+            val,ndig = valueList[i]
+            # Is the current number a match for the pattern?
+            if ndig==numDigits or (ndig>numDigits and not self._valueToStr(["",(val,ndig)]).startswith("0")):
+                # Check if the string prior to the number matches as well
+                prefix = self._valueToStr(valueList[:i])
+                if fnmatch.fnmatch(prefix, prefixPattern):
+                    if self._fnmatch(valueList[i+1:], patternList[2:]):
+                        return True
+    
+        return False
 
     def groupRepr(self, numChar="*"):
         """Return a template string where the numbers are replaced by the given character.
@@ -264,7 +435,7 @@ class SeqString:
         - ``anim1_018.tif`` -> 2
         - ``anim``          -> 0
         """
-        return int(len(self._value)/2)
+        return len(self._value)//2
 
     def getNum(self, idx):
         """Return a particular number inside the string.
@@ -278,7 +449,7 @@ class SeqString:
         if idx<0:
             idx = self.numCount()+idx
         if idx<0 or idx>=self.numCount():
-            raise IndexError, "index out of range"
+            raise IndexError("index out of range")
 
         return self._value[idx*2+1][0]
 
@@ -294,7 +465,7 @@ class SeqString:
         if idx<0:
             idx = self.numCount()+idx
         if idx<0 or idx>=self.numCount():
-            raise IndexError, "index out of range"
+            raise IndexError("index out of range")
 
         val,ndigits = self._value[idx*2+1]
         a = '%'+"0%dd"%ndigits
@@ -327,7 +498,7 @@ class SeqString:
         if idx<0:
             idx = self.numCount()+idx
         if idx<0 or idx>=self.numCount():
-            raise IndexError, "index out of range"
+            raise IndexError("index out of range")
 
         if width is None:
             width = self._value[idx*2+1][1]
@@ -353,7 +524,7 @@ class SeqString:
         if idx<0:
             idx = self.numCount()+idx
         if idx<0 or idx>=self.numCount():
-            raise IndexError, "index out of range"
+            raise IndexError("index out of range")
 
         return self._value[idx*2+1][1]
 
@@ -367,7 +538,7 @@ class SeqString:
         if idx<0:
             idx = self.numCount()+idx
         if idx<0 or idx>=self.numCount():
-            raise IndexError, "index out of range"
+            raise IndexError("index out of range")
 
         width = int(width)
         val = self._value[idx*2+1][0]
@@ -417,7 +588,7 @@ class SeqString:
         if idx<0:
             idx = self.numCount()+idx
         if idx<0 or idx>=self.numCount():
-            raise IndexError, "index out of range"
+            raise IndexError("index out of range")
 
         # Insert the text
         self._value[idx*2] += str(txt)
@@ -445,10 +616,11 @@ class SeqString:
         
         # Check if the index is valid
         if idx2<0 or idx2>=len(self._value):
-            raise IndexError, "index out of range"
+            raise IndexError("index out of range")
 
         # Replace the text
         self._value[idx2] = str(txt)
+
 
 class Sequence:
     """A list of names/objects that all belong to the same sequence.
@@ -565,7 +737,7 @@ class Sequence:
             name = SeqString(name)
 
         if not self.match(name):
-            placeholder,ranges = self.sequenceName()
+            placeholder,_ranges = self.sequenceName()
             raise ValueError("Cannot add '%s' to sequence %s. The name doesn't match the sequence."%(name, placeholder))
 
         if obj is not None:
@@ -609,8 +781,8 @@ class Sequence:
         are given in the same order as the corresponding number appears in
         the names.
         """
-        name,rangeStrs = self._nameAndRangeStrs()
-        return map(lambda x: Range(x), rangeStrs)
+        _name,rangeStrs = self._nameAndRangeStrs()
+        return list(map(lambda x: Range(x), rangeStrs))
 
     def sequenceName(self):
         """Return a sequence placeholder and range strings.
@@ -727,7 +899,7 @@ class Range:
       [1, 2, 3, 10, 11, 12, 13]
 
     The range object supports the :func:`len()` operator, comparison operators,
-    the :keyword:`in` operator and iteration. Examples:
+    the :obj:`in` operator and iteration. Examples:
     
       >>> rng = Range("1-2,5")
       >>> len(rng)
@@ -812,7 +984,7 @@ class Range:
         for begin,end,step in self._ranges:
             if end is None:
                 raise ValueError("Cannot return length of infinite range")
-            res += int((end-begin)/step)+1
+            res += ((end-begin)//step)+1
         return res
             
             
@@ -824,7 +996,7 @@ class Range:
         """
         # Copy the _ranges list and convert the tuples to lists.
         # The "begin" value will be increased during the iteration.
-        currentValues = map(lambda x: list(x), self._ranges)
+        currentValues = list(map(lambda x: list(x), self._ranges))
         
         # Advance all sub-ranges in parallel and always yield the minimum
         # value. The ensures that the iteration is done in order and no value
@@ -848,7 +1020,7 @@ class Range:
                         currentValues[i][0] = current
                     
             # Remove the deleted items (the ones that are None)
-            currentValues = filter(lambda x: x is not None, currentValues)
+            currentValues = list(filter(lambda x: x is not None, currentValues))
     
     def __contains__(self, val):
         """Check if a value is inside the range.
@@ -871,7 +1043,7 @@ class Range:
           >>> Range("1-").isInfinite()
           True
         """
-        for begin,end,step in self._ranges:
+        for _begin,end,_step in self._ranges:
             if end is None:
                 return True
             
@@ -894,7 +1066,7 @@ class Range:
         if type(rangeStr) is not str:
             raise TypeError("The rangeStr argument must be a string")
 
-        reRange = re.compile(r"([0-9]+)(?:-([0-9]*)(?:x([0-9]+))?)?$")
+        reRange = re.compile(r"(-?[0-9]+)(?:-(-?[0-9]*)(?:x([0-9]+))?)?$")
 
         ranges = []
         for rs in rangeStr.split(","):
@@ -1015,7 +1187,7 @@ class Range:
                     return [rng1]
                 else:
                     # Set the begin of rng2 to the first value behind the end of rng1
-                    n = int((end1-begin2)/step2)+1
+                    n = ((end1-begin2)//step2)+1
                     begin2 += n*step2
             # Different steps, so only the first value is identical
             else:
@@ -1039,7 +1211,7 @@ class Range:
         res = []
         # Split off the first part of rng1 (everything that is before rng2)
         # -> adjust rng1 so that it only contains the remaining range
-        n = int((begin2-begin1-1)/step1)
+        n = (begin2-begin1-1)//step1
         e1 = begin1+n*step1
         res.append((begin1,e1,step1))
         begin1 = e1+step1
@@ -1354,6 +1526,14 @@ class OutputNameGenerator:
       spam1_1.tif -> foo_0001_3.tif
       spam1_2.tif -> foo_0002_3.tif
       spam1_5.tif -> foo_0005_3.tif
+      >>> 
+      >>> # The following assumes that "targetdir" is an existing directory
+      >>> for src,dst in OutputNameGenerator(seqs, "targetdir"):
+      ...   print src,"->",dst
+      ... 
+      spam1_1.tif -> targetdir/spam1_1.tif
+      spam1_2.tif -> targetdir/spam1_2.tif
+      spam1_5.tif -> targetdir/spam1_5.tif
     """
     
     def __init__(self, srcSequences, dstName, srcRanges=None, dstRange=None, keepExt=True,
@@ -1424,7 +1604,8 @@ class OutputNameGenerator:
         
         # Add full range to the srcRanges list until the length is identical to
         # the number of sequences.
-        srcRanges.extend((len(srcSequences)-len(srcRanges))*[Range("0-")])
+        fullRange = self._getFullRange(srcSequences)
+        srcRanges.extend((len(srcSequences)-len(srcRanges))*[fullRange])
 
         if dstRange is None:
             dstRangeIter = None
@@ -1445,11 +1626,31 @@ class OutputNameGenerator:
         self._enforceDstRange = enforceDstRange
         self._repeatSrc = repeatSrc
         self.numberMergeFlag = False
-
+        
         # Run the output preparation just to set the numberMergeFlag.
         # The preparation is later done again when the user iterates over the names
         for srcSeq in self._srcSequences:
             self._outputNameSpec(srcSeq, dstName, dstRangeIter is not None)
+
+    def _getFullRange(self, srcSequences):
+        """Return a Range object that spans all numbers that appear in the sequences.
+        
+        Returns a Range object that can be used as default source range.
+        The range includes all numbers that appear anywhere on the input sequences.
+        srcSequences must be a list of Sequence objects.
+        """
+        # By default, the range starts at 0, but if any sequence contains
+        # negative numbers, we have to find the smallest negative number
+        # so that we can start from there.
+        minNumber = 0
+        for srcSeq in srcSequences:
+            for rng in srcSeq.ranges():
+                if len(rng)>0:
+                    start = iter(rng).next()
+                    if start<minNumber:
+                        minNumber = start
+        
+        return Range("%s-"%minNumber)
 
     def __iter__(self):
         return self.iterNames()
@@ -1475,7 +1676,6 @@ class OutputNameGenerator:
                 dstName = self._dstName
         
             # Create the src,dst pairs...
-            seqFileTable = []
             for src,dst in self._iterNames(srcSeq, dstName, srcRange, self._dstRangeIter,
                                            self._enforceDstRange, self._repeatSrc, self._keepExt):
                 yield (src,dst)
@@ -1515,7 +1715,7 @@ class OutputNameGenerator:
         # range would have no effect and the output would be "foo1", "foo1",
         # "foo2", "foo2". The following if sets the main sequence number to be
         # the first one and then everything is fine again.
-        if seqNumIdx not in ei:
+        if len(ei)!=0 and seqNumIdx not in ei:
             seqNumIdx = max(ei)
         
         srcIter = iter(srcSequence)
@@ -1538,15 +1738,22 @@ class OutputNameGenerator:
                     else:
                         break
             
+            # Build the signedNums argument. If the original SeqString contains
+            # negative numbers, then we keep that index so that the same negative
+            # number will be produced again below. Indices are counted from the
+            # end because we may cut away some numbers by removing the path.
+            if srcIter is not None:
+                signedNums = [-i-1 for i,x in enumerate(reversed(srcName.getNums())) if x<0]
+            
             srcName = str(srcName)
             baseName = os.path.basename(srcName)
             baseName,ext = os.path.splitext(baseName)
-            baseName = SeqString(baseName)
+            baseName = SeqString(baseName, signedNums=signedNums)
             # Get all the numbers that are present in the source name
             allNums = baseName.getNums()
             # Only keep the numbers that are actually used in the output name
-            nums = map(lambda i: allNums[i], numIdxs)
-    
+            nums = list(map(lambda i: allNums[i], numIdxs))
+
             # Only queue this file when it is part of the source range
             if len(nums)==0 or (nums[seqNumIdx] in srcRange):
                 # If a destination range was specified then replace the
@@ -1596,11 +1803,16 @@ class OutputNameGenerator:
         # The index of the number that varies most (i.e. the index of the sequence number)
         seqNumIdx = fileSequence.sequenceNumberIndex()
     
-        numIdxs = []
         numValues = len(ranges)
-        numVaryingValues = len(filter(lambda rng: len(rng)>1, ranges))
+        numVaryingValues = len(list(filter(lambda rng: len(rng)>1, ranges)))
+        # If the sequence only consisted of one single file (containing a number),
+        # then we still assume there is a varying value (which will be the last
+        # number. seqNumIdx is the index of the last number at this point).
+        # This way the input file can still be treated as a proper sequence. 
+        if len(fileSequence)==1 and len(ranges)>0:
+            numVaryingValues = 1
         
-        numIdxs = range(numValues)
+        numIdxs = list(range(numValues))
         
         indices = dstTemplate.expressionIndices(numValues)
         numPatterns = len(indices)
@@ -1626,10 +1838,14 @@ class OutputNameGenerator:
         # Then we can assume that the user only wants to reference the varying
         # numbers and the constant numbers are just part of the name.
         elif numPatterns==numVaryingValues and not dstTemplate.hasExplicitIndex:
-            numIdxs = []
-            for i,rng in enumerate(ranges):
-                if len(rng)>1:
-                    numIdxs.append(i)
+            if len(fileSequence)>1:
+                numIdxs = []
+                for i,rng in enumerate(ranges):
+                    if len(rng)>1:
+                        numIdxs.append(i)
+            else:
+                # This is used for sequences that only have one single file. We treat the last number as the varying number.
+                numIdxs = [seqNumIdx]
         # Do we have too few patterns? (and the user did not specify any
         # index explicitly?)
         # If so, throw an error because it's not clear which number should be
@@ -1695,7 +1911,7 @@ class _SequenceProcessor:
             fileTab.append((src,dst,uiSrc,uiDst))
             
         # Resolve internal collisions
-        srcFiles = map(lambda t: t[0], fileTab)
+        srcFiles = list(map(lambda t: t[0], fileTab))
         fileTab = self._resolveCollisions(fileTab, srcFiles)
 
         self._fileTab = fileTab
@@ -1726,7 +1942,6 @@ class _SequenceProcessor:
             srcDict[srcName] = 1
             
         dstFiles = map(lambda t: t[1], self._fileTab)
-        overwrites = []
         for dstName in dstFiles:
             if dstName not in srcDict and os.path.exists(dstName):
                 yield dstName
@@ -1880,7 +2095,7 @@ class MoveSequence(_SequenceProcessor):
             srcName = item[0]
             dstName = item[1]
             del fileDict[srcName]
-            if fileDict.has_key(dstName):
+            if dstName in fileDict:
                 return True
             fileDict[dstName] = 1
             
@@ -2050,7 +2265,7 @@ class SymLinkSequence(CopySequence):
         os.symlink(src, dst)
 
 
-def buildSequences(names, numPos=None, assumeFiles=False, nameFunc=None):
+def buildSequences(names, numPos=None, assumeFiles=False, nameFunc=None, signedNums=None):
     """Create sorted sequences from a list of names/objects.
     
     *names* is a list of objects (usually strings) that are grouped into sequences.
@@ -2068,21 +2283,27 @@ def buildSequences(names, numPos=None, assumeFiles=False, nameFunc=None):
     The function has to return the actual name of that object. This can
     be used if the input list contains objects that are not strings but
     some other (compound) objects.
-    
+
+    *signedNum* is either a boolean that can be used to turn all numbers
+    into signed numbers or it may be a list containing the indices of
+    the numbers that should be treated as signed numbers. An index may
+    also be negative to count from the end. By default, all numbers
+    are unsigned.
+
     Returns a list of :class:`Sequence<cgkit.sequence.Sequence>` objects.
     The sequences and the files within the sequences are sorted.
     """
     # Create the objects list which contains 2-tuples (seqString,obj).
     # obj is the original object from the "names" list or None.
     if nameFunc is None:
-        objects = map(lambda name: (SeqString(name),None), names)
+        objects = map(lambda name: (SeqString(name,signedNums=signedNums),None), names)
     else:
-        objects = map(lambda obj: (SeqString(nameFunc(obj)),obj), names)
+        objects = map(lambda obj: (SeqString(nameFunc(obj),signedNums=signedNums),obj), names)
     # Sort the objects according to their seqString
     # The order of the result is already so that members of the same
     # sequence are together, we just don't know yet where a sequence ends
     # and the next one begins.
-    objects.sort(key=lambda tup: tup[0])
+    objects = sorted(objects, key=lambda tup: tup[0])
     
     return _buildSequences(objects, numPos, assumeFiles)
     
@@ -2100,11 +2321,12 @@ def _buildSequences(objects, numPos=None, assumeFiles=False):
         # Are we dealing with file names? Then freeze directory numbers...
         if assumeFiles:
             path,n = os.path.split(str(name))
+            # The signedNums flag is irrevelant for freezing numbers
             pathseq = SeqString(path)
             # n: The number count in the path (these numbers have to be frozen)
             n = pathseq.numCount()
-            for i in range(n):
-                name.replaceNum(i, name.getNumStr(i))
+            for dummy in range(n):
+                name.replaceNum(0, name.getNumStr(0))
             
         sequenceSplit = False
         
@@ -2186,7 +2408,7 @@ def compactRange(values):
         begin,end,step = rangeList[i]
         # Is this a range containing 2 values? Then check if it's advantageous
         # second value can be moved into the subsequent range
-        if begin!=end and (end-begin)/step==1:
+        if begin!=end and (end-begin)//step==1:
             begin2,end2,step2 = rangeList[i+1]
             # The second range only contains 1 value? Then only move
             # when the new step is smaller than the old step in the first range
@@ -2216,7 +2438,7 @@ def compactRange(values):
             if step==1:
                 rs.append("%s-%s"%(begin,end))
             # This sub-range only consists of two values (and step is not 1)? Then list individually
-            elif (end-begin)/step==1:
+            elif (end-begin)//step==1:
                 rs.append("%s,%s"%(begin,end))
             # Full sub-range, including step
             else:
@@ -2224,24 +2446,38 @@ def compactRange(values):
                 
     return ",".join(rs)
 
-def glob(name):
+def glob(name, signedNums=None):
     """Create file sequences from a name pattern.
     
     *name* is a file pattern that will get a ``'*'`` appended. The pattern is then
     passed to the regular :func:`glob()` function from the standard :mod:`glob`
     module to obtain a list of files which are then grouped into sequences.
-    
+
+    *signedNum* is either a boolean that can be used to turn all numbers
+    into signed numbers or it may be a list containing the indices of
+    the numbers that should be treated as signed numbers. An index may
+    also be negative to count from the end. By default, all numbers
+    are unsigned.
+
     Returns a list of :class:`Sequence<cgkit.sequence.Sequence>` objects.
     The sequences and the files within the sequences are sorted.
     """
+    hasSep = name.endswith(os.path.sep)
     name = os.path.normpath(name)
+    if hasSep:
+        name += os.path.sep
     globpattern = name
     if not globpattern.endswith("*"):
         globpattern += "*"
-        
+    
+    # Keep the pattern for calling fnmatch later
+    fnpattern = globpattern
+    
     # Replace number substitution pattern by wildcards (this might result
     # in files being reported that are actually not valid because they either
-    # contain strings instead of numbers or the padding is not as specified)
+    # contain strings instead of numbers or the padding is not as specified.
+    # But those invalid files will be filtered out later using the SeqString's
+    # fnmatch method)
     globpattern = globpattern.replace("#", "????")
     while 1:
         m = re.search(r"@+", globpattern)
@@ -2249,95 +2485,22 @@ def glob(name):
             break
         globpattern = "%s%s%s"%(globpattern[:m.start()], "?*", globpattern[m.end():])
         
-    # Create a regular expression to filter the glob result
-    regexp = []
-    s = name
-    while 1:
-        m = re.search(r"\*|#|@+", s)
-        if m is None:
-            regexp.append(re.escape(s))
-            break
-        p = m.group()
-        regexp.append(re.escape(s[:m.start()]))
-        if p=="*":
-            regexp.append(".*")
-        elif p=="#":
-            regexp.append("[0-9][0-9][0-9][0-9]")
-        else:
-            r = len(p)*"[0-9]"
-            r = "(%s|[1-9][0-9]{%s,})"%(r,len(p))
-            regexp.append(r)
-        s = s[m.end():]
-
-    regexp = "".join(regexp)
-    
     # Get a list of potential file names    
     fileNames = _glob.glob(globpattern)
     
     # Remove all directories
     fileNames = filter(lambda n: not os.path.isdir(n), fileNames)
     
-    # Remove files that don't match the regular expression
-    reg = re.compile(regexp)
-    fileNames = filter(lambda n: reg.match(n) is not None, fileNames)
-    
     # Remove files that don't have any number in their name (without ext)
     fileNames = filter(lambda n: SeqString(os.path.splitext(n)[0]).numCount()>0, fileNames)
+
+    # Convert the names to SeqString objects (actually tuples that can be passed to _buildSequences())
+    objects = [(SeqString(name,signedNums=signedNums),None) for name in fileNames]
     
-    return buildSequences(fileNames, assumeFiles=True)
+    # Remove files that don't match the input pattern
+    objects = [tup for tup in objects if tup[0].fnmatch(fnpattern)]
 
-
-# The following function is obsolete and replaced by the SeqTemplate class.
-#def numSubstitutionPatterns(pattern):
-#    """Return the number of substitution patterns inside a string.
-#    
-#    Returns the number of occurrences of a single '#' or a sequence of '@'
-#    character.
-#    """
-#    rexp = re.compile(r"#|@+")
-#    res = 0
-#    while 1:
-#        m = rexp.search(pattern)
-#        if m is None:
-#            break
-#        res += 1
-#        pattern = pattern[m.end():]
-#    return res
+    # Sort the file names
+    objects = sorted(objects, key=lambda tup: tup[0])
     
-# The following function is obsolete and replaced by the SeqTemplate class.
-#def replaceNums(pattern, nums):
-#    """Replace number patterns inside a string.
-#    
-#    pattern is a string that contains '#' or '@' characters. A single '#'
-#    represents a padded number with 4 digits whereas a sequence of '@'
-#    characters represents a number of that width. If a number is larger than
-#    the specified width, the final width will be larger as well (i.e. the
-#    number is not clipped).
-#    nums is a list of integers. For each number in the list, the pattern
-#    string must contain exactly one number substitution pattern.
-#    """
-#    if len(nums)==1:
-#        patternMsg = "pattern"
-#    else:
-#        patternMsg = "patterns"
-#        
-#    s = pattern
-#    for num in nums:
-#        n1 = s.find("#")
-#        n2 = s.find("@")
-#        if n1!=-1 and (n2==-1 or n1<n2):
-#            s = "%s%04d%s"%(s[:n1], num, s[n1+1:])
-#        elif n2!=-1 and (n1==-1 or n2<n1):
-#            n = 1
-#            while n2+n<len(s) and s[n2+n]=="@":
-#                n += 1
-#            sdef = "%%s%%0%dd%%s"%n
-#            s = sdef%(s[:n2], num, s[n2+n:])
-#        else:
-#            raise ValueError("No matching number substitution pattern found: %s (expected %s %s)"%(pattern, len(nums), patternMsg))
-#            
-#    if s.find("#")!=-1 or s.find("@")!=-1:
-#        raise ValueError("Too many number substitution patterns: %s (only expected %s %s)"%(pattern,len(nums), patternMsg))
-#        
-#    return s
-
+    return _buildSequences(objects, assumeFiles=True)

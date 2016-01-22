@@ -72,7 +72,7 @@ For more details on using the module see the cgkit manual at
 http://cgkit.sourceforge.net/
 """
 
-import sys, types, time, os, os.path, string, getpass, inspect, gzip
+import sys, types, time, os, os.path, getpass, inspect, gzip
 try:
     from _core import vec3 as _vec3
 except:
@@ -222,6 +222,9 @@ RI_HANDLEID     = "__handleid"
 # Tokens specific to the cgkit binding...
 RI_RIBOUTPUT    = "_riboutput"
 RI_VERSION      = "_version"
+RI_ROUND_NDIGITS = "roundndigits"
+RI_NUM_SIGNIFICANT_DIGITS = "numsignificantdigits"
+RI_FLOAT_FMT_STRING = "floatfmtstring"
 
 # Error handling: severity levels
 RIE_INFO        = 0
@@ -503,6 +506,8 @@ def RiOption(name, *paramlist, **keyparams):
     Example: RiOption("searchpath", "shader","~/shaders:&")
     """
     global _ribout
+    global _round_ndigits
+    global _float_conversion_string
 
     # cgkit specific options?
     if name==RI_RIBOUTPUT:
@@ -511,6 +516,12 @@ def RiOption(name, *paramlist, **keyparams):
             # Disable the "version" call in the RIB stream...
             if hasattr(_ribout, "output_version"):
                 _ribout.output_version = 0
+        
+        _round_ndigits = keyparams.get(RI_ROUND_NDIGITS, _round_ndigits)
+        numDigits = keyparams.get(RI_NUM_SIGNIFICANT_DIGITS, None)
+        if numDigits is not None:
+            _float_conversion_string = "%%1.%dg"%int(numDigits)
+        _float_conversion_string = keyparams.get(RI_FLOAT_FMT_STRING, _float_conversion_string)
         return
             
     _ribout.write('Option "'+name+'"'+_paramlist2string(paramlist, keyparams)+"\n")
@@ -678,8 +689,7 @@ def RiHyperboloid(point1, point2, thetamax, *paramlist, **keyparams):
 
     p1 = _seq2list(point1, 3)
     p2 = _seq2list(point2, 3)
-    _ribout.write('Hyperboloid '+p1[1:-1]+' '+p2[1:-1]+' '+`thetamax`+ \
-                 _paramlist2string(paramlist, keyparams)+"\n")
+    _ribout.write('Hyperboloid %s %s %s%s\n'%(p1[1:-1], p2[1:-1], thetamax, _paramlist2string(paramlist, keyparams)))
 
 # RiParaboloid
 def RiParaboloid(rmax, zmin, zmax, thetamax, *paramlist, **keyparams):
@@ -982,7 +992,7 @@ def RiColorSamples(nRGB, RGBn):
         _error(RIE_CONSISTENCY, RIE_ERROR,
                "The number of values in the transformation matrices must be a multiple of 3.")
         
-    _colorsamples = len(_flatten(nRGB))/3
+    _colorsamples = len(_flatten(nRGB))//3
     _ribout.write('ColorSamples '+_seq2list(nRGB)+' '+_seq2list(RGBn)+'\n')
 
 # RiColor
@@ -1255,7 +1265,7 @@ def RiPixelFilter(function, xwidth, ywidth):
 
     Example: RiPixelFilter(RiGaussianFilter, 2.0, 1.0)"""
     
-    if callable(function):
+    if hasattr(function, "__call__"):
         _error(RIE_INCAPABLE, RIE_WARNING, "Only the standard filters can be stored in a RIB stream.")
         return
 
@@ -1357,7 +1367,7 @@ def RiTranslate(*translation):
         _ribout.write('Translate %s %s %s\n'%(dx,dy,dz))
     # Invalid argument size
     else:
-        raise TypeError, "RiTranslate() only takes a sequence or three scalars as arguments"
+        raise TypeError("RiTranslate() only takes a sequence or three scalars as arguments")
 
 # RiRotate
 def RiRotate(angle, *axis):
@@ -1378,7 +1388,7 @@ def RiRotate(angle, *axis):
         _ribout.write('Rotate %s %s %s %s\n'%(angle, ax, ay, az))
     # Invalid argument size
     else:
-        raise TypeError, "RiRotate() only takes 2 or 4 arguments ("+`len(axis)+1`+" given)"
+        raise TypeError("RiRotate() only takes 2 or 4 arguments (%s given)"%(len(axis)+1))
 
 
 # RiScale
@@ -1399,7 +1409,7 @@ def RiScale(*scaling):
         _ribout.write('Scale %s %s %s\n'%(sx, sy, sz))
     # Invalid argument size
     else:
-        raise TypeError, "RiScale() only takes a sequence or three scalars as arguments"
+        raise TypeError("RiScale() only takes a sequence or three scalars as arguments")
 
 
 # RiSkew
@@ -1424,7 +1434,7 @@ def RiSkew(angle, *vecs):
         _ribout.write('Skew %s %s %s %s %s %s %s\n'%(angle, dx1, dy1, dz1, dx2, dy2, dz2))
     # Invalid argument size
     else:
-        raise TypeError, "RiSkew() only takes 3 or 7 arguments ("+`len(vecs)+1`+" given)"
+        raise TypeError("RiSkew() only takes 3 or 7 arguments (%s given)"%(len(vecs)+1))
 
 
 # RiPerspective
@@ -1846,7 +1856,7 @@ def RiMakeTexture(picname, texname, swrap, twrap, filterfunc, swidth, twidth, *p
                            RiGaussianFilter, 2,2)
     """
     
-    if callable(filterfunc):
+    if hasattr(filterfunc, "__call__"):
         _error(RIE_INCAPABLE, RIE_WARNING, "Only the standard filters can be stored in a RIB stream.")
         return
 
@@ -1867,7 +1877,7 @@ def RiMakeLatLongEnvironment(picname, texname, filterfunc, swidth, twidth, *para
                                       RiGaussianFilter, 2,2)
     """
     
-    if callable(filterfunc):
+    if hasattr(filterfunc, "__call__"):
         _error(RIE_INCAPABLE, RIE_WARNING, "Only the standard filters can be stored in a RIB stream.")
         return
 
@@ -1891,7 +1901,7 @@ def RiMakeCubeFaceEnvironment(px,nx,py,ny,pz,nz, texname, fov, filterfunc, swidt
                                         RiGaussianFilter, 2,2)
     """
     
-    if callable(filterfunc):
+    if hasattr(filterfunc, "__call__"):
         _error(RIE_INCAPABLE, RIE_WARNING, "Only the standard filters can be stored in a RIB stream.")
         return
 
@@ -2074,6 +2084,14 @@ def RiResourceEnd():
 _contexts     = {}
 _current_context = None
 
+# The number of digits that floats are rounded to (may be negative).
+# This is the second argument to round(). The parameter is global and not
+# part of a Ri context.
+_round_ndigits = 10
+# The conversion format string for floats. Floats are first rounded and
+# then converted using this string.
+_float_conversion_string = "%1.6g"
+
 ####
 
 # Initially the output stream is stdout (and not an instance of RIBStream)
@@ -2213,17 +2231,16 @@ def _error(code, severity, message):
         file   = inspect.stack(1)[j+1][1]
         line   = inspect.stack(1)[j+1][2]
         if file==None: file="?"
-        where = 'In file "'+file+'", line '+`line`+' - '+call+"():\n"
+        where = 'In file "%s", line %s - %s():\n'%(file, line, call)
 
     _errorhandler(code,severity,where+message)
 
 def _seq2col(seq):
     """Convert a sequence containing a color into a string."""
     if len(seq)<_colorsamples:
-        _error(RIE_INVALIDSEQLEN, RIE_ERROR, "Invalid sequence length ("+\
-               `len(seq)`+" instead of "+`_colorsamples`+")")
+        _error(RIE_INVALIDSEQLEN, RIE_ERROR, "Invalid sequence length (%s instead of %s)"%(len(seq), _colorsamples))
     colseq = tuple(seq)
-    return '['+string.join( map(lambda x: str(x), colseq[:_colorsamples]) )+']'
+    return '[%s]'%(" ".join( map(lambda x: str(x), colseq[:_colorsamples]) ))
 
 def _flatten(seq):
     """Return a list of the individual items in a (possibly nested) sequence.
@@ -2234,16 +2251,26 @@ def _flatten(seq):
     Example: _flatten( [(1,2,3), (4,5,6)] ) -> ["1","2","3","4","5","6"]
              _flatten( ("str1","str2") )    -> ['"str1"','"str2"']
     """
+    global _round_ndigits
+    global _float_conversion_string
+    
+    ndigits = _round_ndigits
+    floatFmtStr = _float_conversion_string
+    
     res = []
-    ScalarTypes = [types.IntType, types.LongType, types.FloatType]
+    ScalarTypes = [types.IntType, types.LongType]
     for v in seq:
         vtype = type(v)
         # v=scalar?
-        if vtype in ScalarTypes:
+        if vtype is float:
+            res.append(floatFmtStr%round(v,ndigits))
+        elif vtype in ScalarTypes:
             res.append(str(v))
         # vec3?
         elif isinstance(v, _vec3):
-            res.extend([str(v.x), str(v.y), str(v.z)])
+            res.extend([floatFmtStr%round(v.x,ndigits),
+                        floatFmtStr%round(v.y,ndigits),
+                        floatFmtStr%round(v.z,ndigits)])
         # v=string?
         elif isinstance(v, basestring):
             res.append('"%s"'%v)
@@ -2270,8 +2297,7 @@ def _seq2list(seq, count=None):
     f = _flatten(seq)
     # Has the sequence an incorrect length? then generate an error
     if count!=None and len(f)!=count:
-        _error(RIE_INVALIDSEQLEN, RIE_ERROR, "Invalid sequence length ("+\
-               `len(f)`+" instead of "+`count`+")")
+        _error(RIE_INVALIDSEQLEN, RIE_ERROR, "Invalid sequence length (%s instead of %s)"%(len(f), count))
         
     return '[%s]'%" ".join(f)
 
@@ -2288,7 +2314,7 @@ def _paramlist2dict(paramlist, keyparams):
         paramlist = ()
     
     # Add the paramlist tuple to the keyword argument dict
-    for i in range(len(paramlist)/2):
+    for i in range(len(paramlist)//2):
         token = paramlist[i*2]
         value = paramlist[i*2+1]
         keyparams[token]=value
@@ -2305,7 +2331,7 @@ def _paramlist2lut(paramlist, keyparams):
     The resulting dictionary can be used to look up the value of tokens.
     """
     # Add the paramlist tuple to the keyword argument dict
-    for i in range(len(paramlist)/2):
+    for i in range(len(paramlist)//2):
         token = paramlist[i*2]
         value = paramlist[i*2+1]
         # Extract the name of the token (without inline declaration
@@ -2327,13 +2353,14 @@ def _merge_paramlist(paramlist, keyparams):
     # Check if the number of values is uneven (this is only allowed when
     # the last value is None (RI_NULL) in which case this last value is ignored)
     if (len(res)%2==1):
-       if res[-1] is None:
-           res = res[:-1]
-       else:
-           raise ValueError, "The parameter list must contain an even number of values" 
+        if res[-1] is None:
+            res = res[:-1]
+        else:
+            raise ValueError("The parameter list must contain an even number of values")
 
     # Append the params from the keyparams dict to the parameter list
-    map(lambda param: res.extend(param), keyparams.iteritems())
+    for param,value in sorted(keyparams.items()):
+        res.extend([param,value])
     return res
     
 
@@ -2351,6 +2378,8 @@ def _paramlist2string(paramlist, keyparams={}):
     """
 
     global _declarations
+    global _round_ndigits
+    global _float_conversion_string
 
     paramlist = _merge_paramlist(paramlist, keyparams)
 
@@ -2364,7 +2393,7 @@ def _paramlist2string(paramlist, keyparams={}):
         tokname = f[-1:][0]
         inline  = f[:-1]
 
-        if not (_declarations.has_key(tokname) or inline!=[]):
+        if not (tokname in _declarations or inline!=[]):
             _error(RIE_UNDECLARED,RIE_ERROR,'Parameter "'+tokname+
                    '" is not declared.')
         
@@ -2381,8 +2410,11 @@ def _paramlist2string(paramlist, keyparams={}):
         elif isseq:
             value = _seq2list(value)
         else:
-            value='[%s]'%value
-        res+=' "'+token+'" '+value
+            if type(value) is float:
+                value = '[%s]'%(_float_conversion_string%round(value, _round_ndigits))
+            else:
+                value='[%s]'%value
+        res+=' "%s" %s'%(token, value)
 
     if (res==" "): res=""
     return res

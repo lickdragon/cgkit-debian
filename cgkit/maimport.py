@@ -77,8 +77,11 @@ class MAImporter(mayaascii.DefaultMAReader):
 
         self.root_parent = parent
 
-        f = file(filename)
-        self.read(f)
+        f = open(filename)
+        try:
+            self.read(f)
+        finally:
+            f.close()
 
     # begin
     def begin(self):
@@ -474,7 +477,7 @@ class MAImporter(mayaascii.DefaultMAReader):
         ax = vec3(creator.getAttrValue("axis", "ax", "double3", 1, vec3(0,1,0)))
 
         if ax!=vec3(0,0,1):
-            print "WARNING: Plane %s ignored because axis!=z"%node.getName()
+            print "WARNING: Plane %s ignored because axis!=z"%creator.getName()
             return
 
 #        args["transform"] *= self.axisToTransform(ax)
@@ -580,7 +583,7 @@ class MAImporter(mayaascii.DefaultMAReader):
         else:
             tnode = node.getParent()
             if tnode==None or tnode.nodetype!="transform":
-                raise ValueError, "transform node not found for node %s."%node.getFullName()
+                raise ValueError("transform node not found for node %s."%node.getFullName())
 
         if args==None:
             args = {}

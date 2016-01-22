@@ -43,11 +43,15 @@
  */
 
 #include <iostream>
+#include <math.h>
 #include "vec3.h"
 #include "mat3.h"
 #include "mat4.h"
 #include "common_exceptions.h"
-#include "math.h"
+
+#ifndef M_PI
+  #define M_PI 3.14159265358979323846
+#endif
 
 namespace support3d {
 
@@ -184,7 +188,19 @@ quat<T> slerp(T t, const quat<T>& q0, const quat<T>& q1, bool shortest=true)
     ca = -ca;
     neg_q1 = true;
   }
-  o = acos(ca);
+
+  if (ca>=1.0)
+  {
+      o = 0.0;
+  }
+  else if (ca<=-1.0)
+  {
+      o = M_PI;
+  }
+  else
+  {
+      o = acos(ca);
+  }
   so = sin(o);
 
   if (xabs(so)<vec3<T>::epsilon)

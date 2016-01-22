@@ -59,7 +59,7 @@ def splitDAGPath(path):
     foo|bar  ->  (None, ['foo', 'bar'])
     """
     if not isinstance(path, types.StringTypes):
-        raise ValueError, "string type expected as path argument, got %s"%type(path)
+        raise ValueError("string type expected as path argument, got %s"%type(path))
         
     namespace = None
     n = path.find(":")
@@ -282,11 +282,11 @@ class Attribute:
 
         # No type information given?
         if valtype==None:
-            raise ValueError, "No type information available for attribute '%s'"%self.getBaseName()
+            raise ValueError("No type information available for attribute '%s'"%self.getBaseName())
 
         # Check if the type matches the required type...
         if valtype!=type:
-            raise ValueError, "Attribute of type %s expected, got %s"%(type, valtype)
+            raise ValueError("Attribute of type %s expected, got %s"%(type, valtype))
 
         # Convert the values..
         convertername = "convert"+type[0].upper()+type[1:]
@@ -303,7 +303,7 @@ class Attribute:
         if n==None:
             return vs
         if len(vs)!=n:
-            raise ValueError, "%s: %d values expected, got %d"%(self._attr, n, len(vs))
+            raise ValueError("%s: %d values expected, got %d"%(self._attr, n, len(vs)))
         if n==1:
             return vs[0]
         else:
@@ -389,7 +389,7 @@ class Attribute:
             c = vs[i]
             i+=1
             if c not in ["f", "h", "mf", "mh", "mu", "fc"]:
-                raise ValueError, "Unknown polyFace data: %s"%c
+                raise ValueError("Unknown polyFace data: %s"%c)
             
             if c=="mu":
                 uvset = int(vs[i])
@@ -543,7 +543,7 @@ class MultiAttrStorage:
 
     def __getattr__(self, name):
         if name[:2]=="__":
-            raise AttributeError, name
+            raise AttributeError(name)
         ma = MultiAttrStorage()
         setattr(self, name, ma)
         return ma
@@ -562,7 +562,7 @@ class MultiAttrStorage:
             if key.stop>=al:
                 self._array += (key.stop-al+1)*[None]
             if len(value)!=(key.stop-key.start+1):
-                raise ValueError, "%d values expected, got %d"%(key.stop-key.start+1, len(value))
+                raise ValueError("%d values expected, got %d"%(key.stop-key.start+1, len(value)))
             self._array[key.start:key.stop+1] = value
 #            print key.start,key.stop
         else:
@@ -594,11 +594,11 @@ class Node:
 
         # Do some type checking...
         if not isinstance(nodetype, types.StringTypes):
-            raise ValueError, "Argument 'nodetype' must be a string, got %s."%(type(nodetype))
+            raise ValueError("Argument 'nodetype' must be a string, got %s."%(type(nodetype)))
         if type(opts)!=dict:
-            raise ValueError, "Argument 'opts' must be a dict, got %s."%(type(opts))
+            raise ValueError("Argument 'opts' must be a dict, got %s."%(type(opts)))
         if parent!=None and not isinstance(parent, Node):
-            raise ValueError, "Argument 'parent' must be a Node object or None, got %s."%(type(parent))
+            raise ValueError("Argument 'parent' must be a Node object or None, got %s."%(type(parent)))
 
         # A string containing the node type
         self.nodetype = nodetype
@@ -635,7 +635,7 @@ class Node:
             ma = MultiAttrStorage()
             setattr(self, name, ma)
             return ma
-        raise AttributeError, name
+        raise AttributeError(name)
 
     # getName
     def getName(self):
@@ -734,8 +734,8 @@ class Node:
         the full attribute name.
         """
         if not isinstance(node, Node):
-            raise ValueError, "Argument 'node' must be a Node instance."
-        if self.out_connections.has_key(localattr):
+            raise ValueError("Argument 'node' must be a Node instance.")
+        if localattr in self.out_connections:
             self.out_connections[localattr].append((node, nodename, attrname))
         else:
             self.out_connections[localattr] = [(node, nodename, attrname)]
@@ -866,7 +866,7 @@ class MAReader:
     method that has to execute the command. These callback methods
     have to be implemented in a derived class.
 
-    There are 12 MEL commands that can appear in a Maya ASCII file: 
+    There are 13 MEL commands that can appear in a Maya ASCII file: 
 
     - file 
     - requires 
@@ -880,6 +880,7 @@ class MAReader:
     - parent 
     - select
     - lockNode
+    - relationship
 
     Each command has a number of arguments and can also take
     options. The callback methods receive the arguments as regular
@@ -1132,6 +1133,11 @@ class MAReader:
                                     "ic":"ignoreComponents" }
         self.lockNode_opt_def = { "lock" : (1, None),
                                   "ignoreComponents" : (0, None) }
+
+        # relationship options
+        self.relationship_name_dict = { "b":"break" }
+        self.relationship_opt_def = { "break" : (0, None)}
+
         
     # Provide linenr as an alias for cmd_start_linenr
     @property
@@ -1257,6 +1263,14 @@ class MAReader:
         pass
 #        print "lockNode",objects,opts
 
+    def onRelationship(self, args, opts):
+        """Callback for the 'relationship' MEL command.
+        
+        args is a list of the command line arguments. opts is the options dict.
+        """
+        pass
+#        print "relationship",args,opts
+
     # onCommand
     def onCommand(self, cmd, args):
         """Generic command callback.
@@ -1344,6 +1358,12 @@ class MAReader:
                                      self.lockNode_opt_def,
                                      self.lockNode_name_dict)
             self.onLockNode(args, opts)
+        # relationship
+        elif cmd=="relationship":
+            args, opts = self.getOpt(args,
+                                     self.relationship_opt_def,
+                                     self.relationship_name_dict)
+            self.onRelationship(args, opts)
         # unknown
         else:
             print >>sys.stderr, "WARNING: %s, line %d: Unknown MEL command: '%s'"%(self.filename, self.cmd_start_linenr, cmd)
@@ -1385,7 +1405,7 @@ class MAReader:
                 optname = name_dict.get(a[1:], a[1:])
                 # Check if the option is known
                 if optname not in opt_def:
-                    raise SyntaxError, "Unknown option in line %d: %s"%(self.cmd_start_linenr, optname)
+                    raise SyntaxError("Unknown option in line %d: %s"%(self.cmd_start_linenr, optname))
                 # Get the number of arguments
                 numargs, filter = opt_def[optname]
                 optvals = [stripQuotes(x) for x in arglist[i:i+numargs]]
@@ -1458,7 +1478,7 @@ class MAReader:
         n = s.find(";")
         # Was a semicolon before the first string? Then the string belongs
         # to a subsequent command, so ignore it for now
-        if n!=-1 and n<b:
+        if n!=-1 and (b is None or n<b):
             b = e = None
         # No string found?
         if b==None:
@@ -1554,12 +1574,12 @@ class DefaultMAReader(MAReader):
         objects = map(lambda x: stripQuotes(x), objects)
         
         if opts!={"noExpand":[]}:
-            raise ValueError, "%s, %d: The select command contains unsupported options."%(self.filename, self.linenr)
+            raise ValueError("%s, %d: The select command contains unsupported options."%(self.filename, self.linenr))
 
         if len(objects)==0:
-            raise ValueError, "%s, %d: The select command contains no object name."%(self.filename, self.linenr)
+            raise ValueError("%s, %d: The select command contains no object name."%(self.filename, self.linenr))
         if len(objects)!=1:
-            raise ValueError, "%s, %d: The select command contains more than one object."%(self.filename, self.linenr)
+            raise ValueError("%s, %d: The select command contains more than one object."%(self.filename, self.linenr))
 
         self.currentnode = self.findNode(objects[0], create=True)
 
@@ -1649,7 +1669,7 @@ class DefaultMAReader(MAReader):
                         if create:
                             node = self.createNode("<unknown>", {"name":[name]})
                         else:
-                            raise KeyError, "Node %s not found (%s is missing)"%(path, name)
+                            raise KeyError("Node %s not found (%s is missing)"%(path, name))
                 else:
                     for cn in node.iterChildren():
                         if name==cn.getName():
@@ -1659,7 +1679,7 @@ class DefaultMAReader(MAReader):
                         if create:
                             node = self.createNode("<unknown>", {"name":[name], "parent":[node.getFullName()]})
                         else:
-                            raise KeyError, "Node %s not found (%s is missing)"%(path, name)
+                            raise KeyError("Node %s not found (%s is missing)"%(path, name))
         return node
 
     # createNode

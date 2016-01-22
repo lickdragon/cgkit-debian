@@ -34,7 +34,7 @@
 # ***** END LICENSE BLOCK *****
 # $Id: riutil.py,v 1.1.1.1 2004/12/12 14:31:21 mbaas Exp $
 
-import types, sys
+import types, sys, getpass
 from cgtypes import vec3
 from ri import *
 try:
@@ -152,7 +152,7 @@ def RiuGrid(thickness=0.02, cells=6, shader="matte", color=(0.9,0.9,0.9)):
 
 def RiuHeightfield(image):
     if not _PIL_installed:
-        raise ImportError, "the Python Imaging Library (PIL) is not installed"
+        raise ImportError("the Python Imaging Library (PIL) is not installed")
     
     if type(image)==types.StringType or type(image)==types.UnicodeType:
         image = Image.open(image)

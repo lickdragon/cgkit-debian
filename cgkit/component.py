@@ -41,7 +41,7 @@ from _core import Component as _Component
 from Interfaces import ISceneItem
 import protocols, copy, inspect, re
 from slots import *
-import scene
+from globalscene import getScene
 
 # Component
 class Component(_Component):
@@ -58,7 +58,7 @@ class Component(_Component):
         _Component.__init__(self, name)
         
         if auto_insert:
-            scene.getScene().insert(self)
+            getScene().insert(self)
 
     def protocols(self):
         return [ISceneItem]
@@ -88,7 +88,7 @@ def _parseFuncDecl(funcdecl):
     # Parse the result type...
     m = re.match("[a-zA-Z0-9]+ ", funcdecl)
     if m==None:
-        raise SyntaxError, "No valid return type found"
+        raise SyntaxError("No valid return type found")
         
     restype = funcdecl[m.start():m.end()].strip()
 
@@ -96,7 +96,7 @@ def _parseFuncDecl(funcdecl):
     s = funcdecl[m.end():]
     i = s.find("(")
     if i==-1:
-        raise SyntaxError, "Parameter block is missing"
+        raise SyntaxError("Parameter block is missing")
     funcname = s[:i].strip()
 
     # Parse the arguments...
@@ -111,7 +111,7 @@ def _parseFuncDecl(funcdecl):
         elif len(f)==2:
             type,name = f
         else:
-            raise SyntaxError, "Invalid parameter declaration: '%s'"%s
+            raise SyntaxError("Invalid parameter declaration: '%s'"%s)
         inputs.append((name,type,None))
 
     return restype, funcname, inputs
@@ -168,7 +168,7 @@ def createFunctionComponentSource(clsname, restype, funcname, inputs):
     """
 
     res = """from cgkit import _core
-from cgkit.scene import getScene
+from cgkit.globalscene import getScene
     
 class %s(Component):
     
@@ -216,7 +216,7 @@ def createFunctionComponent(func, funcdeclaration=None):
     if funcdeclaration==None:
         restype, funcname, inputs = _inspectFuncDecl(func)
         if restype==None:
-            raise ValueError, "Cannot determine the types of the arguments and the return value."
+            raise ValueError("Cannot determine the types of the arguments and the return value.")
     else:
         restype, funcname, inputs = _parseFuncDecl(funcdeclaration)
 

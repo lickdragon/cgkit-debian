@@ -125,12 +125,18 @@ class PreProcessor:
         self.errstream = errstream
         
         if isinstance(source, types.StringTypes):
-            fhandle = file(source, "rt")
+            fhandle = open(source, "rt")
+            closeHandle = True
         else:
             fhandle = source
+            closeHandle = False
 
         self.output_buffer = []
-        self.preprocess(fhandle)
+        try:
+            self.preprocess(fhandle)
+        finally:
+            if closeHandle:
+                fhandle.close()
         return "\n".join(self.output_buffer)
 
     def preprocess(self, fhandle):
@@ -252,7 +258,7 @@ class PreProcessor:
         value = " ".join(a[1:])
         self.defined[name] = value
         self.substitution_list.append((name, value))
-        self.substitution_list.sort(lambda a,b: cmp(len(b[0]), len(a[0])))
+        self.substitution_list.sort(reverse=True)
 
     def onUndef(self, directive, arg):
         """Handle #undef directives.
@@ -292,7 +298,7 @@ class PreProcessor:
             return
 
         name = a[0]
-        cond = self.defined.has_key(name)
+        cond = name in self.defined
         self.context.condition_list.append(cond)
         self.context.output_line = cond
 
@@ -306,7 +312,7 @@ class PreProcessor:
             return
         
         name = a[0]
-        cond = not self.defined.has_key(name)
+        cond = name not in self.defined
         self.context.condition_list.append(cond)
         self.context.output_line = cond
 

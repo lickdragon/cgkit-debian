@@ -32,7 +32,6 @@
 # the terms of any one of the MPL, the GPL or the LGPL.
 #
 # ***** END LICENSE BLOCK *****
-# $Id: worldobject.py,v 1.3 2005/08/15 15:47:56 mbaas Exp $
 
 ## \file worldobject.py
 ## Contains the WorldObject class.
@@ -42,7 +41,7 @@
 import _core
 from Interfaces import ISceneItem, ISceneItemContainer
 import protocols
-import scene
+import globalscene
 from cgtypes import *
 
 # WorldObject
@@ -102,10 +101,9 @@ class WorldObject(_core.WorldObject):
         \param auto_insert (\c bool) If True, the object is inserted into the
                         scene automatically
         """
-        exec _preInitWorldObject
-        _core.WorldObject.__init__(self, name)
 
-        _initWorldObject(self, name=name,
+        _initWorldObject(self, baseClass=_core.WorldObject,
+                         name=name,
                          transform=transform, pos=pos, rot=rot,
                          scale=scale, pivot=pivot,
                          offsetTransform=offsetTransform,
@@ -147,7 +145,7 @@ class WorldObject(_core.WorldObject):
 #        if self.geom!=None and self.geom.hasSlot(name):
 #            exec "res=self.geom.%s"%name
 #            return res
-        raise AttributeError, 'Object "%s" has no attribute "%s"'%(self.name, name)
+        raise AttributeError('Object "%s" has no attribute "%s"'%(self.name, name))
     
     def __setattr__(self, name, val):
         if self.geom!=None and self.geom.hasSlot(name):
@@ -157,20 +155,9 @@ class WorldObject(_core.WorldObject):
             _core.WorldObject.__setattr__(self, name, val)
         
 
-# This string has to be executed at the beginning of a constructor
-# that has to initialize a _core.WorldObject object.
-_preInitWorldObject = """
-if auto_insert:
-    if parent==None:
-        parent = scene.getScene().worldRoot()
-    else:
-        if type(parent) in [str, unicode]:
-            parent = scene.getScene().worldObject(parent)
-    name = parent.makeChildNameUnique(name)
-"""
-    
 # Common WorldObject initializations
-def _initWorldObject(self, name, parent, transform=None,
+def _initWorldObject(self, baseClass,
+                     name, parent, transform=None,
                      pos=None, rot=None, scale=None,
                      pivot=None, offsetTransform=None,
                      mass=None, material=None, visible=True,
@@ -178,6 +165,16 @@ def _initWorldObject(self, name, parent, transform=None,
                      auto_insert=True):
     """Helper function for usage in constructors.
     """
+    if auto_insert:
+        if parent is None:
+            parent = globalscene.getScene().worldRoot()
+        else:
+            if type(parent) is str:
+                parent = globalscene.getScene().worldObject(parent)
+        name = parent.makeChildNameUnique(name)
+    
+    baseClass.__init__(self, name)
+    
     if offsetTransform!=None:
         self.setOffsetTransform(offsetTransform)
     if pivot!=None:
